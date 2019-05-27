@@ -67,12 +67,12 @@ class InputExample(object):
 class InputFeatures(object):
     """A single set of features of data."""
 
-    def __init__(self, input_ids, input_mask, segment_ids, label_id):
+    def __init__(self, input_ids, input_mask, segment_ids, label_id, tokens):
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
         self.label_id = label_id
-
+        self.tokens = tokens
 
 class DataProcessor(object):
     """Base class for data converters for sequence classification data sets."""
@@ -402,6 +402,7 @@ class WnliProcessor(DataProcessor):
         return examples
 
 
+
 def convert_examples_to_features(examples, label_list, max_seq_length,
                                  tokenizer, output_mode):
     """Loads a data file into a list of `InputBatch`s."""
@@ -414,6 +415,18 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
             logger.info("Writing example %d of %d" % (ex_index, len(examples)))
 
         tokens_a = tokenizer.tokenize(example.text_a)
+        
+        '''START TODO: split text into parts of length MAX_SEQ_LENGTH. Caution: do not split sentences. One sentence lays in one         part.'''
+        int(len(train[DATA_COLUMN][0])/MAX_SEQ_LENGTH)
+        tr_data_col = train[DATA_COLUMN]
+        for tr_data in tr_data_col:
+            tr_data_parts = []
+            idx = 0
+            while start_idx < len(tr_data):
+                end_idx = idx + MAX_SEQ_LENGTH
+                tr_data_parts.append(tr_data[start_idx:end_idx])
+                start_idx = end_idx
+        '''END TODO'''
 
         tokens_b = None
         if example.text_b:
@@ -486,11 +499,14 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
                 "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
             logger.info("label: %s (id = %d)" % (example.label, label_id))
 
+        '''START TODO: append all parts of a single document. Not just a single InputFeatures object.'''
         features.append(
             InputFeatures(input_ids=input_ids,
                           input_mask=input_mask,
                           segment_ids=segment_ids,
-                          label_id=label_id))
+                          label_id=label_id,
+                          tokens = tokens))
+        '''END TODO'''
     return features
 
 
