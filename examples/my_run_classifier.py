@@ -414,9 +414,10 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
         if ex_index % 10000 == 0:
             logger.info("Writing example %d of %d" % (ex_index, len(examples)))
 
+        # tokens_a is a list of tokens.
         tokens_a = tokenizer.tokenize(example.text_a)
         
-        '''START TODO: split text into parts of length MAX_SEQ_LENGTH. Caution: do not split sentences. One sentence lays in one         part.'''
+        '''START TODO: split text into parts of length MAX_SEQ_LENGTH. Caution: do not split sentences. One sentence lays in one         part.
         int(len(train[DATA_COLUMN][0])/MAX_SEQ_LENGTH)
         tr_data_col = train[DATA_COLUMN]
         for tr_data in tr_data_col:
@@ -426,7 +427,7 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
                 end_idx = idx + MAX_SEQ_LENGTH
                 tr_data_parts.append(tr_data[start_idx:end_idx])
                 start_idx = end_idx
-        '''END TODO'''
+        END TODO'''
 
         tokens_b = None
         if example.text_b:
