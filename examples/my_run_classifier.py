@@ -18,6 +18,7 @@
 from __future__ import absolute_import, division, print_function
 
 import argparse
+import collections
 import csv
 import logging
 import os
@@ -68,6 +69,27 @@ class InputFeatures(object):
     """A single set of features of data."""
 
     def __init__(self, input_ids, input_mask, segment_ids, label_id, tokens):
+        self.input_ids = input_ids
+        self.input_mask = input_mask
+        self.segment_ids = segment_ids
+        self.label_id = label_id
+        self.tokens = tokens
+
+class InputFeatures_DocSpan(object):
+    """A single set of features of data."""
+
+    def __init__(self,
+                 unique_id,
+                 example_index,
+                 doc_span_index,
+                 input_ids,
+                 input_mask,
+                 segment_ids,
+                 label_id,
+                 tokens):
+        self.unique_id = unique_id
+        self.example_index = example_index
+        self.doc_span_index = doc_span_index
         self.input_ids = input_ids
         self.input_mask = input_mask
         self.segment_ids = segment_ids
@@ -510,6 +532,93 @@ def convert_examples_to_features(examples, label_list, max_seq_length,
         '''END TODO'''
     return features
 
+
+# Divide document into spans of length max_seq_length (with [CLS] and [SEP] tags).
+# Create InputFeatures object for each span.
+# Return list of InputFeatures.
+# Keep in mind that currently code does not care for preserving a sentence within a span. Same for original run_squad.py code of pytorch's bert library.
+def convert_examples_to_features_with_doc_spans(examples, label_list, max_seq_length, doc_stride,
+                                                tokenizer, output_mode):
+    """Loads a data file into a list of `InputBatch`s."""
+    unique_id = 1000000000
+
+    label_map = {label: i for i, label in enumerate(label_list)}
+
+    features = []
+    for (example_index, example) in enumerate(examples):
+        # tokens_a is a list of tokens.
+        all_doc_tokens = tokenizer.tokenize(example.text_a)
+
+        # The -2 accounts for [CLS] and [SEP]
+        max_tokens_for_doc = max_seq_length - len(all_doc_tokens) - 2
+
+        # Divide doc into spans.
+
+        # We can have documents that are longer than the maximum sequence length.
+        # To deal with this we do a sliding window approach, where we take chunks
+        # of the up to our max length with a stride of `doc_stride`.
+        _DocSpan = collections.namedtuple(  # pylint: disable=invalid-name
+            "DocSpan", ["start", "length"])
+        doc_spans = []
+        start_offset = 0
+        while start_offset < len(all_doc_tokens):
+            length = len(all_doc_tokens) - start_offset
+            if length > max_tokens_for_doc:
+                length = max_tokens_for_doc
+            doc_spans.append(_DocSpan(start=start_offset, length=length))
+            if start_offset + length == len(all_doc_tokens):
+                break
+            start_offset += min(length, doc_stride)
+
+        for (doc_span_index, doc_span) in enumerate(doc_spans):
+            tokens = []
+            tokens.append("[CLS]")
+            for i in range(doc_span.length):
+                split_token_index = doc_span.start + i
+                tokens.append(all_doc_tokens[split_token_index])
+            tokens.append("[SEP]")
+
+            label_id = example.label
+            input_ids = tokenizer.convert_tokens_to_ids(tokens)
+            segment_ids = [0] * len(tokens)
+            input_mask = [1] * len(input_ids)
+
+            # Zero-pad up to the sequence length.
+            padding = [0] * (max_seq_length - len(input_ids))
+            input_ids += padding
+            input_mask += padding
+            segment_ids += padding
+
+            assert len(input_ids) == max_seq_length
+            assert len(input_mask) == max_seq_length
+            assert len(segment_ids) == max_seq_length
+
+            if example_index < 5:
+                logger.info("*** Example ***")
+                logger.info("unique_id: %s" % (unique_id))
+                logger.info("example_index: %s" % (example_index))
+                logger.info("doc_span_index: %s" % (doc_span_index))
+                logger.info("tokens: %s" % " ".join(tokens))
+
+                logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
+                logger.info(
+                    "input_mask: %s" % " ".join([str(x) for x in input_mask]))
+                logger.info(
+                    "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
+
+            features.append(
+                InputFeatures_DocSpan(
+                    unique_id=unique_id,
+                    example_index=example_index,
+                    doc_span_index=doc_span_index,
+                    input_ids=input_ids,
+                    input_mask=input_mask,
+                    segment_ids=segment_ids,
+                    label_id = label_id,
+                    tokens=tokens))
+
+            unique_id += 1
+    return features
 
 def _truncate_seq_pair(tokens_a, tokens_b, max_length):
     """Truncates a sequence pair in place to the maximum length."""

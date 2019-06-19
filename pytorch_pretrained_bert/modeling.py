@@ -988,7 +988,7 @@ class BertForSequenceClassification(BertPreTrainedModel):
         self.classifier = nn.Linear(config.hidden_size, num_labels)
         self.apply(self.init_bert_weights)
 
-    def forward(self, input_ids, token_type_ids=None, attention_mask=None, labels=None):
+    def forward(self, input_ids, token_type_ids=None, attention_mask=None):
         encoded_layers, pooled_output = self.bert(input_ids, token_type_ids, attention_mask)
         return encoded_layers, pooled_output
 
