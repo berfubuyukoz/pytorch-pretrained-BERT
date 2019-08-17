@@ -102,6 +102,7 @@ class BertTokenizer(object):
           self.basic_tokenizer = BasicTokenizer(do_lower_case=do_lower_case,
                                                 never_split=never_split)
         self.wordpiece_tokenizer = WordpieceTokenizer(vocab=self.vocab)
+        #self.wordpiece_tokenizer = WordpieceTokenizer(vocab=self.vocab, max_seq_len=max_len)
         self.max_len = max_len if max_len is not None else int(1e12)
 
     def tokenize(self, text):
@@ -151,6 +152,7 @@ class BertTokenizer(object):
 
     @classmethod
     def from_pretrained(cls, pretrained_model_name_or_path, cache_dir=None, *inputs, **kwargs):
+    #def from_pretrained(cls, pretrained_model_name_or_path, cache_dir=None, max_seq_len=1000, *inputs, **kwargs):
         """
         Instantiate a PreTrainedBertModel from a pre-trained model file.
         Download and cache the pre-trained model file if needed.
@@ -193,6 +195,7 @@ class BertTokenizer(object):
             # than the number of positional embeddings
             max_len = PRETRAINED_VOCAB_POSITIONAL_EMBEDDINGS_SIZE_MAP[pretrained_model_name_or_path]
             kwargs['max_len'] = min(kwargs.get('max_len', int(1e12)), max_len)
+            #kwargs['max_len'] = min(kwargs.get('max_len', int(1e12)), max_seq_len)
         # Instantiate tokenizer.
         tokenizer = cls(resolved_vocab_file, *inputs, **kwargs)
         return tokenizer
@@ -319,9 +322,11 @@ class WordpieceTokenizer(object):
     """Runs WordPiece tokenization."""
 
     def __init__(self, vocab, unk_token="[UNK]", max_input_chars_per_word=100):
+    #def __init__(self, vocab, unk_token="[UNK]", max_input_chars_per_word=100, max_seq_len=126):
         self.vocab = vocab
         self.unk_token = unk_token
         self.max_input_chars_per_word = max_input_chars_per_word
+        #self.max_seq_len = max_seq_len
 
     def tokenize(self, text):
         """Tokenizes a piece of text into its word pieces.
@@ -372,6 +377,8 @@ class WordpieceTokenizer(object):
                 output_tokens.append(self.unk_token)
             else:
                 output_tokens.extend(sub_tokens)
+            # if len(output_tokens) == self.max_seq_len:
+            #     break
         return output_tokens
 
 
