@@ -306,7 +306,7 @@ class XLNetConfig(PretrainedConfig):
             self.end_n_top = end_n_top
         else:
             raise ValueError("First argument must be either a vocabulary size (int)"
-                             "or the path to a pretrained model config file (str)")
+                             " or the path to a pretrained model config file (str)")
 
     @property
     def max_position_embeddings(self):
@@ -337,20 +337,7 @@ try:
     from apex.normalization.fused_layer_norm import FusedLayerNorm as XLNetLayerNorm
 except (ImportError, AttributeError) as e:
     logger.info("Better speed can be achieved with apex installed from https://www.github.com/nvidia/apex .")
-    class XLNetLayerNorm(nn.Module):
-        def __init__(self, d_model, eps=1e-12):
-            """Construct a layernorm module in the TF style (epsilon inside the square root).
-            """
-            super(XLNetLayerNorm, self).__init__()
-            self.weight = nn.Parameter(torch.ones(d_model))
-            self.bias = nn.Parameter(torch.zeros(d_model))
-            self.variance_epsilon = eps
-
-        def forward(self, x):
-            u = x.mean(-1, keepdim=True)
-            s = (x - u).pow(2).mean(-1, keepdim=True)
-            x = (x - u) / torch.sqrt(s + self.variance_epsilon)
-            return self.weight * x + self.bias
+    from torch.nn import LayerNorm as XLNetLayerNorm
 
 class XLNetRelativeAttention(nn.Module):
     def __init__(self, config):
@@ -418,7 +405,10 @@ class XLNetRelativeAttention(nn.Module):
         attn_score = (ac + bd + ef) * self.scale
         if attn_mask is not None:
             # attn_score = attn_score * (1 - attn_mask) - 1e30 * attn_mask
-            attn_score = attn_score - 1e30 * attn_mask
+            if attn_mask.dtype == torch.float16:
+                attn_score = attn_score - 65500 * attn_mask
+            else:
+                attn_score = attn_score - 1e30 * attn_mask
 
         # attention probability
         attn_prob = F.softmax(attn_score, dim=1)
@@ -596,10 +586,7 @@ class XLNetPreTrainedModel(PreTrainedModel):
     load_tf_weights = load_tf_weights_in_xlnet
     base_model_prefix = "transformer"
 
-    def __init__(self, *inputs, **kwargs):
-        super(XLNetPreTrainedModel, self).__init__(*inputs, **kwargs)
-
-    def init_weights(self, module):
+    def _init_weights(self, module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding)):
@@ -647,12 +634,16 @@ XLNET_START_DOCSTRING = r"""    The XLNet model was proposed in
 
     Parameters:
         config (:class:`~pytorch_transformers.XLNetConfig`): Model configuration class with all the parameters of the model.
+            Initializing with a config file does not load the weights associated with the model, only the configuration.
+            Check out the :meth:`~pytorch_transformers.PreTrainedModel.from_pretrained` method to load the model weights.
 """
 
 XLNET_INPUTS_DOCSTRING = r"""
     Inputs:
         **input_ids**: ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
             Indices of input sequence tokens in the vocabulary.
+            XLNet is a model with relative position embeddings so you can either pad the inputs on
+            the right or on the left.
             Indices can be obtained using :class:`pytorch_transformers.XLNetTokenizer`.
             See :func:`pytorch_transformers.PreTrainedTokenizer.encode` and
             :func:`pytorch_transformers.PreTrainedTokenizer.convert_tokens_to_ids` for details.
@@ -673,8 +664,11 @@ XLNET_INPUTS_DOCSTRING = r"""
             ``1`` for tokens that are MASKED, ``0`` for tokens that are NOT MASKED.
         **mems**: (`optional`)
             list of ``torch.FloatTensor`` (one for each layer):
-            that contains pre-computed hidden-states (key and values in the attention blocks) as computed by the model
+            that contains pre-computed hidden-states (key and values in the attention blocks) as output by the model
             (see `mems` output below). Can be used to speed up sequential decoding and attend to longer context.
+            To activate mems you need to set up config.mem_len to a positive value which will be the max number of tokens in
+            the memory output by the model. E.g. `model = XLNetModel.from_pretrained('xlnet-base-case, mem_len=1024)` will
+            instantiate a model which can use up to 1024 tokens of memory (in addition to the input it self).
         **perm_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length, sequence_length)``:
             Mask to indicate the attention pattern for each input token with values selected in ``[0, 1]``:
             If ``perm_mask[k, i, j] = 0``, i attend to j in batch k;
@@ -701,7 +695,8 @@ class XLNetModel(XLNetPreTrainedModel):
         **mems**:
             list of ``torch.FloatTensor`` (one for each layer):
             that contains pre-computed hidden-states (key and values in the attention blocks) as computed by the model
-            (see `mems` input above). Can be used to speed up sequential decoding and attend to longer context.
+            if config.mem_len > 0 else tuple of None. Can be used to speed up sequential decoding and attend to longer context.
+            See details in the docstring of the `mems` input above.
         **hidden_states**: (`optional`, returned when ``config.output_hidden_states=True``)
             list of ``torch.FloatTensor`` (one for the output of each layer + the output of the embeddings)
             of shape ``(batch_size, sequence_length, hidden_size)``:
@@ -738,7 +733,7 @@ class XLNetModel(XLNetPreTrainedModel):
         self.layer = nn.ModuleList([XLNetLayer(config) for _ in range(config.n_layer)])
         self.dropout = nn.Dropout(config.dropout)
 
-        self.apply(self.init_weights)
+        self.init_weights()
 
     def _resize_token_embeddings(self, new_num_tokens):
         self.word_embedding = self._get_resized_embeddings(self.word_embedding, new_num_tokens)
@@ -855,7 +850,7 @@ class XLNetModel(XLNetPreTrainedModel):
         target_mapping = target_mapping.permute(1, 2, 0).contiguous() if target_mapping is not None else None
 
         qlen, bsz = input_ids.shape[0], input_ids.shape[1]
-        mlen = mems[0].shape[0] if mems is not None else 0
+        mlen = mems[0].shape[0] if mems is not None and mems[0] is not None else 0
         klen = mlen + qlen
 
         dtype_float = next(self.parameters()).dtype
@@ -1007,7 +1002,8 @@ class XLNetLMHeadModel(XLNetPreTrainedModel):
         **mems**:
             list of ``torch.FloatTensor`` (one for each layer):
             that contains pre-computed hidden-states (key and values in the attention blocks) as computed by the model
-            (see `mems` input above). Can be used to speed up sequential decoding and attend to longer context.
+            if config.mem_len > 0 else tuple of None. Can be used to speed up sequential decoding and attend to longer context.
+            See details in the docstring of the `mems` input above.
         **hidden_states**: (`optional`, returned when ``config.output_hidden_states=True``)
             list of ``torch.FloatTensor`` (one for the output of each layer + the output of the embeddings)
             of shape ``(batch_size, sequence_length, hidden_size)``:
@@ -1038,7 +1034,7 @@ class XLNetLMHeadModel(XLNetPreTrainedModel):
         self.transformer = XLNetModel(config)
         self.lm_loss = nn.Linear(config.d_model, config.n_token, bias=True)
 
-        self.apply(self.init_weights)
+        self.init_weights()
         self.tie_weights()
 
     def tie_weights(self):
@@ -1087,7 +1083,8 @@ class XLNetForSequenceClassification(XLNetPreTrainedModel):
         **mems**:
             list of ``torch.FloatTensor`` (one for each layer):
             that contains pre-computed hidden-states (key and values in the attention blocks) as computed by the model
-            (see `mems` input above). Can be used to speed up sequential decoding and attend to longer context.
+            if config.mem_len > 0 else tuple of None. Can be used to speed up sequential decoding and attend to longer context.
+            See details in the docstring of the `mems` input above.
         **hidden_states**: (`optional`, returned when ``config.output_hidden_states=True``)
             list of ``torch.FloatTensor`` (one for the output of each layer + the output of the embeddings)
             of shape ``(batch_size, sequence_length, hidden_size)``:
@@ -1114,7 +1111,7 @@ class XLNetForSequenceClassification(XLNetPreTrainedModel):
         self.sequence_summary = SequenceSummary(config)
         self.logits_proj = nn.Linear(config.d_model, config.num_labels)
 
-        self.apply(self.init_weights)
+        self.init_weights()
 
     def forward(self, input_ids, token_type_ids=None, input_mask=None, attention_mask=None,
                 mems=None, perm_mask=None, target_mapping=None,
@@ -1185,7 +1182,8 @@ class XLNetForQuestionAnswering(XLNetPreTrainedModel):
         **mems**:
             list of ``torch.FloatTensor`` (one for each layer):
             that contains pre-computed hidden-states (key and values in the attention blocks) as computed by the model
-            (see `mems` input above). Can be used to speed up sequential decoding and attend to longer context.
+            if config.mem_len > 0 else tuple of None. Can be used to speed up sequential decoding and attend to longer context.
+            See details in the docstring of the `mems` input above.
         **hidden_states**: (`optional`, returned when ``config.output_hidden_states=True``)
             list of ``torch.FloatTensor`` (one for the output of each layer + the output of the embeddings)
             of shape ``(batch_size, sequence_length, hidden_size)``:
@@ -1215,7 +1213,7 @@ class XLNetForQuestionAnswering(XLNetPreTrainedModel):
         self.end_logits = PoolerEndLogits(config)
         self.answer_class = PoolerAnswerClass(config)
 
-        self.apply(self.init_weights)
+        self.init_weights()
 
     def forward(self, input_ids, token_type_ids=None, input_mask=None, attention_mask=None,
                 mems=None, perm_mask=None, target_mapping=None,

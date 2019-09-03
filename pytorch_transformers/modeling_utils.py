@@ -59,9 +59,20 @@ if not six.PY2:
             fn.__doc__ = ''.join(docstr) + fn.__doc__
             return fn
         return docstring_decorator
+
+    def add_end_docstrings(*docstr):
+        def docstring_decorator(fn):
+            fn.__doc__ = fn.__doc__ + ''.join(docstr)
+            return fn
+        return docstring_decorator
 else:
     # Not possible to update class docstrings on python2
     def add_start_docstrings(*docstr):
+        def docstring_decorator(fn):
+            return fn
+        return docstring_decorator
+
+    def add_end_docstrings(*docstr):
         def docstring_decorator(fn):
             return fn
         return docstring_decorator
@@ -70,6 +81,10 @@ else:
 class PretrainedConfig(object):
     r""" Base class for all configuration classes.
         Handles a few parameters common to all models' configurations as well as methods for loading/downloading/saving configurations.
+
+        Note:
+            A configuration file can be loaded and saved to disk. Loading the configuration file and using this file to initialize a model does **not** load the model weights.
+            It only affects the model's configuration.
 
         Class attributes (overridden by derived classes):
             - ``pretrained_config_archive_map``: a python ``dict`` of with `short-cut-names` (string) as keys and `url` (string) of associated pretrained model configurations as values.
@@ -89,6 +104,7 @@ class PretrainedConfig(object):
         self.output_attentions = kwargs.pop('output_attentions', False)
         self.output_hidden_states = kwargs.pop('output_hidden_states', False)
         self.torchscript = kwargs.pop('torchscript', False)
+        self.pruned_heads = kwargs.pop('pruned_heads', {})
 
     def save_pretrained(self, save_directory):
         """ Save a configuration object to the directory `save_directory`, so that it
@@ -121,6 +137,13 @@ class PretrainedConfig(object):
                 - The values in kwargs of any keys which are configuration attributes will be used to override the loaded values.
                 - Behavior concerning key/value pairs whose keys are *not* configuration attributes is controlled by the `return_unused_kwargs` keyword parameter.
 
+            force_download: (`optional`) boolean, default False:
+                Force to (re-)download the model weights and configuration files and override the cached versions if they exists.
+
+            proxies: (`optional`) dict, default None:
+                A dictionary of proxy servers to use by protocol or endpoint, e.g.: {'http': 'foo.bar:3128', 'http://hostname': 'foo.bar:4012'}.
+                The proxies are used on each request.
+
             return_unused_kwargs: (`optional`) bool:
 
                 - If False, then this function returns just the final configuration object.
@@ -142,6 +165,8 @@ class PretrainedConfig(object):
 
         """
         cache_dir = kwargs.pop('cache_dir', None)
+        force_download = kwargs.pop('force_download', False)
+        proxies = kwargs.pop('proxies', None)
         return_unused_kwargs = kwargs.pop('return_unused_kwargs', False)
 
         if pretrained_model_name_or_path in cls.pretrained_config_archive_map:
@@ -152,8 +177,8 @@ class PretrainedConfig(object):
             config_file = pretrained_model_name_or_path
         # redirect to the cache, if necessary
         try:
-            resolved_config_file = cached_path(config_file, cache_dir=cache_dir)
-        except EnvironmentError:
+            resolved_config_file = cached_path(config_file, cache_dir=cache_dir, force_download=force_download, proxies=proxies)
+        except EnvironmentError as e:
             if pretrained_model_name_or_path in cls.pretrained_config_archive_map:
                 logger.error(
                     "Couldn't reach server at '{}' to download pretrained model configuration file.".format(
@@ -166,7 +191,7 @@ class PretrainedConfig(object):
                         pretrained_model_name_or_path,
                         ', '.join(cls.pretrained_config_archive_map.keys()),
                         config_file))
-            return None
+            raise e
         if resolved_config_file == config_file:
             logger.info("loading configuration file {}".format(config_file))
         else:
@@ -175,6 +200,9 @@ class PretrainedConfig(object):
 
         # Load config
         config = cls.from_json_file(resolved_config_file)
+
+        if hasattr(config, 'pruned_heads'):
+            config.pruned_heads = dict((int(key), set(value)) for key, value in config.pruned_heads.items())
 
         # Update config with kwargs if needed
         to_remove = []
@@ -287,7 +315,7 @@ class PreTrainedModel(nn.Module):
         new_embeddings.to(old_embeddings.weight.device)
 
         # initialize all new embeddings (in particular added tokens)
-        self.init_weights(new_embeddings)
+        self._init_weights(new_embeddings)
 
         # Copy word embeddings from the previous weights
         num_tokens_to_copy = min(old_num_tokens, new_num_tokens)
@@ -302,6 +330,14 @@ class PreTrainedModel(nn.Module):
             first_module.weight = nn.Parameter(second_module.weight.clone())
         else:
             first_module.weight = second_module.weight
+
+        if hasattr(first_module, 'bias') and first_module.bias is not None:
+            first_module.bias.data = torch.nn.functional.pad(
+                first_module.bias.data,
+                (0, first_module.weight.shape[0] - first_module.bias.shape[0]),
+                'constant',
+                0
+            )
 
     def resize_token_embeddings(self, new_num_tokens=None):
         """ Resize input token embeddings matrix of the model if new_num_tokens != config.vocab_size.
@@ -331,14 +367,30 @@ class PreTrainedModel(nn.Module):
 
         return model_embeds
 
+    def init_weights(self):
+        """ Initialize and prunes weights if needed. """
+        # Initialize weights
+        self.apply(self._init_weights)
+
+        # Prune heads if needed
+        if self.config.pruned_heads:
+            self.prune_heads(self.config.pruned_heads)
+
     def prune_heads(self, heads_to_prune):
         """ Prunes heads of the base model.
 
             Arguments:
 
                 heads_to_prune: dict with keys being selected layer indices (`int`) and associated values being the list of heads to prune in said layer (list of `int`).
+                E.g. {1: [0, 2], 2: [2, 3]} will prune heads 0 and 2 on layer 1 and heads 2 and 3 on layer 2.
         """
         base_model = getattr(self, self.base_model_prefix, self)  # get the base model if needed
+
+        # save new sets of pruned heads as union of previously stored pruned heads and newly pruned heads
+        for layer, heads in heads_to_prune.items():
+            union_heads = set(self.config.pruned_heads.get(layer, [])) | set(heads)
+            self.config.pruned_heads[layer] = list(union_heads)  # Unfortunately we have to store it as list for JSON
+
         base_model._prune_heads(heads_to_prune)
 
     def save_pretrained(self, save_directory):
@@ -396,6 +448,13 @@ class PreTrainedModel(nn.Module):
                 Path to a directory in which a downloaded pre-trained model
                 configuration should be cached if the standard cache should not be used.
 
+            force_download: (`optional`) boolean, default False:
+                Force to (re-)download the model weights and configuration files and override the cached versions if they exists.
+
+            proxies: (`optional`) dict, default None:
+                A dictionary of proxy servers to use by protocol or endpoint, e.g.: {'http': 'foo.bar:3128', 'http://hostname': 'foo.bar:4012'}.
+                The proxies are used on each request.
+
             output_loading_info: (`optional`) boolean:
                 Set to ``True`` to also return a dictionnary containing missing keys, unexpected keys and error messages.
 
@@ -420,6 +479,8 @@ class PreTrainedModel(nn.Module):
         state_dict = kwargs.pop('state_dict', None)
         cache_dir = kwargs.pop('cache_dir', None)
         from_tf = kwargs.pop('from_tf', False)
+        force_download = kwargs.pop('force_download', False)
+        proxies = kwargs.pop('proxies', None)
         output_loading_info = kwargs.pop('output_loading_info', False)
 
         # Load config
@@ -427,6 +488,7 @@ class PreTrainedModel(nn.Module):
             config, model_kwargs = cls.config_class.from_pretrained(
                 pretrained_model_name_or_path, *model_args,
                 cache_dir=cache_dir, return_unused_kwargs=True,
+                force_download=force_download,
                 **kwargs
             )
         else:
@@ -449,8 +511,8 @@ class PreTrainedModel(nn.Module):
                 archive_file = pretrained_model_name_or_path
         # redirect to the cache, if necessary
         try:
-            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir)
-        except EnvironmentError:
+            resolved_archive_file = cached_path(archive_file, cache_dir=cache_dir, force_download=force_download, proxies=proxies)
+        except EnvironmentError as e:
             if pretrained_model_name_or_path in cls.pretrained_model_archive_map:
                 logger.error(
                     "Couldn't reach server at '{}' to download pretrained weights.".format(
@@ -463,7 +525,7 @@ class PreTrainedModel(nn.Module):
                         pretrained_model_name_or_path,
                         ', '.join(cls.pretrained_model_archive_map.keys()),
                         archive_file))
-            return None
+            raise e
         if resolved_archive_file == archive_file:
             logger.info("loading weights file {}".format(archive_file))
         else:
