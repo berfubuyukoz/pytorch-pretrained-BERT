@@ -38,9 +38,11 @@ from .modeling_bert import BertLayerNorm as LayerNorm
 logger = logging.getLogger(__name__)
 
 GPT2_PRETRAINED_MODEL_ARCHIVE_MAP = {"gpt2": "https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-pytorch_model.bin",
-                                     "gpt2-medium": "https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-medium-pytorch_model.bin"}
+                                     "gpt2-medium": "https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-medium-pytorch_model.bin",
+                                     "gpt2-large": "https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-large-pytorch_model.bin"}
 GPT2_PRETRAINED_CONFIG_ARCHIVE_MAP = {"gpt2": "https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-config.json",
-                                      "gpt2-medium": "https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-medium-config.json"}
+                                      "gpt2-medium": "https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-medium-config.json",
+                                      "gpt2-large": "https://s3.amazonaws.com/models.huggingface.co/bert/gpt2-large-config.json"}
 
 def load_tf_weights_in_gpt2(model, config, gpt2_checkpoint_path):
     """ Load tf checkpoints in a pytorch model
@@ -231,22 +233,29 @@ class Attention(nn.Module):
         self.c_proj = Conv1D(n_state, nx)
         self.attn_dropout = nn.Dropout(config.attn_pdrop)
         self.resid_dropout = nn.Dropout(config.resid_pdrop)
+        self.pruned_heads = set()
 
     def prune_heads(self, heads):
         if len(heads) == 0:
             return
         mask = torch.ones(self.n_head, self.split_size // self.n_head)
+        heads = set(heads) - self.pruned_heads  # Convert to set and emove already pruned heads
         for head in heads:
+            # Compute how many pruned heads are before the head and move the index accordingly
+            head = head - sum(1 if h < head else 0 for h in self.pruned_heads)
             mask[head] = 0
         mask = mask.view(-1).contiguous().eq(1)
         index = torch.arange(len(mask))[mask].long()
         index_attn = torch.cat([index, index + self.split_size, index + (2*self.split_size)])
+
         # Prune conv1d layers
         self.c_attn = prune_conv1d_layer(self.c_attn, index_attn, dim=1)
         self.c_proj = prune_conv1d_layer(self.c_proj, index, dim=0)
+
         # Update hyper params
         self.split_size = (self.split_size // self.n_head) * (self.n_head - len(heads))
         self.n_head = self.n_head - len(heads)
+        self.pruned_heads = self.pruned_heads.union(heads)
 
     def _attn(self, q, k, v, head_mask=None):
         w = torch.matmul(q, k)
@@ -352,7 +361,7 @@ class GPT2PreTrainedModel(PreTrainedModel):
     def __init__(self, *inputs, **kwargs):
         super(GPT2PreTrainedModel, self).__init__(*inputs, **kwargs)
 
-    def init_weights(self, module):
+    def _init_weights(self, module):
         """ Initialize the weights.
         """
         if isinstance(module, (nn.Linear, nn.Embedding, Conv1D)):
@@ -383,11 +392,15 @@ GPT2_START_DOCSTRING = r"""    OpenAI GPT-2 model was proposed in
 
     Parameters:
         config (:class:`~pytorch_transformers.GPT2Config`): Model configuration class with all the parameters of the model.
+            Initializing with a config file does not load the weights associated with the model, only the configuration.
+            Check out the :meth:`~pytorch_transformers.PreTrainedModel.from_pretrained` method to load the model weights.
 """
 
 GPT2_INPUTS_DOCSTRING = r"""    Inputs:
         **input_ids**: ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
             Indices of input sequence tokens in the vocabulary.
+            GPT-2 is a model with absolute position embeddings so it's usually advised to pad the inputs on
+            the right rather than the left.
             Indices can be obtained using :class:`pytorch_transformers.BPT2Tokenizer`.
             See :func:`pytorch_transformers.PreTrainedTokenizer.encode` and
             :func:`pytorch_transformers.PreTrainedTokenizer.convert_tokens_to_ids` for details.
@@ -402,10 +415,6 @@ GPT2_INPUTS_DOCSTRING = r"""    Inputs:
             list of ``torch.FloatTensor`` (one for each layer):
             that contains pre-computed hidden-states (key and values in the attention blocks) as computed by the model
             (see `past` output below). Can be used to speed up sequential decoding.
-        **attention_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, sequence_length)``:
-            Mask to avoid performing attention on padding token indices.
-            Mask values selected in ``[0, 1]``:
-            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
         **head_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(num_heads,)`` or ``(num_layers, num_heads)``:
             Mask to nullify selected heads of the self-attention modules.
             Mask values selected in ``[0, 1]``:
@@ -451,7 +460,7 @@ class GPT2Model(GPT2PreTrainedModel):
         self.h = nn.ModuleList([Block(config.n_ctx, config, scale=True) for _ in range(config.n_layer)])
         self.ln_f = LayerNorm(config.n_embd, eps=config.layer_norm_epsilon)
 
-        self.apply(self.init_weights)
+        self.init_weights()
 
     def _resize_token_embeddings(self, new_num_tokens):
         self.wte = self._get_resized_embeddings(self.wte, new_num_tokens)
@@ -566,8 +575,12 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
 
     Examples::
 
+        import torch
+        from pytorch_transformers import GPT2Tokenizer, GPT2LMHeadModel
+
         tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
         model = GPT2LMHeadModel.from_pretrained('gpt2')
+
         input_ids = torch.tensor(tokenizer.encode("Hello, my dog is cute")).unsqueeze(0)  # Batch size 1
         outputs = model(input_ids, labels=input_ids)
         loss, logits = outputs[:2]
@@ -578,7 +591,7 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
         self.transformer = GPT2Model(config)
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
 
-        self.apply(self.init_weights)
+        self.init_weights()
         self.tie_weights()
 
     def tie_weights(self):
@@ -612,7 +625,7 @@ class GPT2LMHeadModel(GPT2PreTrainedModel):
 @add_start_docstrings("""The GPT2 Model transformer with a language modeling and a multiple-choice classification
 head on top e.g. for RocStories/SWAG tasks. The two heads are two linear layers.
 The language modeling head has its weights tied to the input embeddings,
-the classification head takes as input the input of a specified classification token index in the intput sequence).
+the classification head takes as input the input of a specified classification token index in the input sequence).
 """, GPT2_START_DOCSTRING)
 class GPT2DoubleHeadsModel(GPT2PreTrainedModel):
     r"""    Inputs:
@@ -636,10 +649,6 @@ class GPT2DoubleHeadsModel(GPT2PreTrainedModel):
             list of ``torch.FloatTensor`` (one for each layer):
             that contains pre-computed hidden-states (key and values in the attention blocks) as computed by the model
             (see `past` output below). Can be used to speed up sequential decoding.
-        **attention_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(batch_size, num_choices, sequence_length)``:
-            Mask to avoid performing attention on padding token indices.
-            Mask values selected in ``[0, 1]``:
-            ``1`` for tokens that are NOT MASKED, ``0`` for MASKED tokens.
         **head_mask**: (`optional`) ``torch.FloatTensor`` of shape ``(num_heads,)`` or ``(num_layers, num_heads)``:
             Mask to nullify selected heads of the self-attention modules.
             Mask values selected in ``[0, 1]``:
@@ -650,13 +659,10 @@ class GPT2DoubleHeadsModel(GPT2PreTrainedModel):
             Indices are selected in ``[-1, 0, ..., config.vocab_size]``
             All labels set to ``-1`` are ignored (masked), the loss is only
             computed for labels in ``[0, ..., config.vocab_size]``
-        **multiple_choice_labels**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size)``:
+        **mc_labels**: (`optional`) ``torch.LongTensor`` of shape ``(batch_size)``:
             Labels for computing the multiple choice classification loss.
             Indices should be in ``[0, ..., num_choices]`` where `num_choices` is the size of the second dimension
             of the input tensors. (see `input_ids` above)
-
-            `multiple_choice_labels`: optional multiple choice labels: ``torch.LongTensor`` of shape [batch_size]
-                with indices selected in [0, ..., num_choices].
 
     Outputs: `Tuple` comprising various elements depending on the configuration (config) and inputs:
         **lm_loss**: (`optional`, returned when ``lm_labels`` is provided) ``torch.FloatTensor`` of shape ``(1,)``:
@@ -681,13 +687,25 @@ class GPT2DoubleHeadsModel(GPT2PreTrainedModel):
 
     Examples::
 
+        import torch
+        from pytorch_transformers import GPT2Tokenizer, GPT2DoubleHeadsModel
+        
         tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
         model = GPT2DoubleHeadsModel.from_pretrained('gpt2')
-        tokenizer.add_special_tokens({'cls_token': '[CLS]'})  # Add a [CLS] to the vocabulary (we should train it also!)
+        
+        # Add a [CLS] to the vocabulary (we should train it also!)
+        tokenizer.add_special_tokens({'cls_token': '[CLS]'})
+        model.resize_token_embeddings(len(tokenizer))  # Update the model embeddings with the new vocabulary size
+        print(tokenizer.cls_token_id, len(tokenizer))  # The newly token the last token of the vocabulary
+        
         choices = ["Hello, my dog is cute [CLS]", "Hello, my cat is cute [CLS]"]
-        input_ids = torch.tensor([tokenizer.encode(s) for s in choices]).unsqueeze(0)  # Batch size 1, 2 choices
-        mc_token_ids = torch.tensor([input_ids.size(-1), input_ids.size(-1)]).unsqueeze(0)  # Batch size 1
-        outputs = model(input_ids, mc_token_ids)
+        encoded_choices = [tokenizer.encode(s) for s in choices]
+        cls_token_location = [tokens.index(tokenizer.cls_token_id) for tokens in encoded_choices]
+
+        input_ids = torch.tensor(encoded_choices).unsqueeze(0)  # Batch size: 1, number of choices: 2
+        mc_token_ids = torch.tensor([cls_token_location])  # Batch size: 1
+
+        outputs = model(input_ids, mc_token_ids=mc_token_ids)
         lm_prediction_scores, mc_prediction_scores = outputs[:2]
 
     """
@@ -697,7 +715,8 @@ class GPT2DoubleHeadsModel(GPT2PreTrainedModel):
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.multiple_choice_head = SequenceSummary(config)
 
-        self.apply(self.init_weights)
+        self.init_weights()
+        self.tie_weights()
 
     def tie_weights(self):
         """ Make sure we are sharing the input and output embeddings.

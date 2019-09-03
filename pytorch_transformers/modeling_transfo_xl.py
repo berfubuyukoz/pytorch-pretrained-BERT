@@ -285,7 +285,7 @@ class TransfoXLConfig(PretrainedConfig):
             self.init_std = init_std
         else:
             raise ValueError("First argument must be either a vocabulary size (int)"
-                             "or the path to a pretrained model config file (str)")
+                             " or the path to a pretrained model config file (str)")
 
     @property
     def max_position_embeddings(self):
@@ -853,9 +853,6 @@ class TransfoXLPreTrainedModel(PreTrainedModel):
     load_tf_weights = load_tf_weights_in_transfo_xl
     base_model_prefix = "transformer"
 
-    def __init__(self, *inputs, **kwargs):
-        super(TransfoXLPreTrainedModel, self).__init__(*inputs, **kwargs)
-
     def _init_weight(self, weight):
         if self.config.init == 'uniform':
             nn.init.uniform_(weight, -self.config.init_range, self.config.init_range)
@@ -865,7 +862,7 @@ class TransfoXLPreTrainedModel(PreTrainedModel):
     def _init_bias(self, bias):
         nn.init.constant_(bias, 0.0)
 
-    def init_weights(self, m):
+    def _init_weights(self, m):
         """ Initialize the weights.
         """
         classname = m.__class__.__name__
@@ -928,12 +925,16 @@ TRANSFO_XL_START_DOCSTRING = r"""    The Transformer-XL model was proposed in
 
     Parameters:
         config (:class:`~pytorch_transformers.TransfoXLConfig`): Model configuration class with all the parameters of the model.
+            Initializing with a config file does not load the weights associated with the model, only the configuration.
+            Check out the :meth:`~pytorch_transformers.PreTrainedModel.from_pretrained` method to load the model weights.
 """
 
 TRANSFO_XL_INPUTS_DOCSTRING = r"""
     Inputs:
         **input_ids**: ``torch.LongTensor`` of shape ``(batch_size, sequence_length)``:
             Indices of input sequence tokens in the vocabulary.
+            Transformer-XL is a model with relative position embeddings so you can either pad the inputs on
+            the right or on the left.
             Indices can be obtained using :class:`pytorch_transformers.TransfoXLTokenizer`.
             See :func:`pytorch_transformers.PreTrainedTokenizer.encode` and
             :func:`pytorch_transformers.PreTrainedTokenizer.convert_tokens_to_ids` for details.
@@ -1055,7 +1056,7 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
             self.r_emb = nn.Parameter(torch.FloatTensor(
                     self.n_layer, self.max_klen, self.n_head, self.d_head))
 
-        self.apply(self.init_weights)
+        self.init_weights()
 
     def _resize_token_embeddings(self, new_num_tokens):
         return self.word_emb
@@ -1138,10 +1139,10 @@ class TransfoXLModel(TransfoXLPreTrainedModel):
             else:
                 mask_shift_len = qlen
             dec_attn_mask = (torch.triu(all_ones, 1+mlen)
-                    + torch.tril(all_ones, -mask_shift_len)).byte()[:, :, None] # -1
+                    + torch.tril(all_ones, -mask_shift_len)).bool()[:, :, None] # -1
         else:
             dec_attn_mask = torch.triu(
-                word_emb.new_ones(qlen, klen), diagonal=1+mlen).byte()[:,:,None]
+                word_emb.new_ones(qlen, klen), diagonal=1+mlen).bool()[:,:,None]
 
         hids = []
         attentions = []
@@ -1302,7 +1303,7 @@ class TransfoXLLMHeadModel(TransfoXLPreTrainedModel):
         else:
             self.crit = ProjectedAdaptiveLogSoftmax(config.n_token, config.d_embed, config.d_model, 
                                                     config.cutoffs, div_val=config.div_val)
-        self.apply(self.init_weights)
+        self.init_weights()
         self.tie_weights()
 
     def tie_weights(self):
