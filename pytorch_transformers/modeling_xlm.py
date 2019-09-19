@@ -651,7 +651,7 @@ class XLMModel(XLMPreTrainedModel):
         if token_type_ids is not None:
             tensor = tensor + self.embeddings(token_type_ids)
         tensor = self.layer_norm_emb(tensor)
-        tensor = F.dropout(tensor, p=self.dropout, training=self.training)
+        tensor = F.dropout(tensor, p=self.dropout, training=self.training) #Applies dropout if training=True.
         tensor *= mask.unsqueeze(-1).to(tensor.dtype)
 
         # transformer layers
