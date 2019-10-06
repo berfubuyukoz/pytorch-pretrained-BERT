@@ -622,6 +622,6 @@ glue_output_modes = {
     "qnli": "classification",
     "rte": "classification",
     "wnli": "classification",
-    "protetsnews": "classification",
+    "protestnews": "classification",
     "sentiment": "classification"
 }
