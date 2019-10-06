@@ -18,6 +18,7 @@ import csv
 import sys
 import copy
 import json
+import pandas as pd
 
 class InputExample(object):
     """
@@ -115,6 +116,15 @@ class DataProcessor(object):
             lines = []
             for line in reader:
                 if sys.version_info[0] == 2:
-                    line = list(unicode(cell, 'utf-8') for cell in line)
+                    line = list(cell.decode('utf-8') for cell in line)
                 lines.append(line)
             return lines
+
+    def _read_json(cls, input_file):
+        return pd.read_json(input_file, orient='records')
+
+    def _read_excel(cls, input_file):
+        return pd.read_excel(input_file, index_col=None, dtype={'text': str})
+
+
+

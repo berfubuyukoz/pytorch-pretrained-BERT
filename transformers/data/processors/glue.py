@@ -276,6 +276,75 @@ class ColaProcessor(DataProcessor):
                 InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
         return examples
 
+class SentimentProcessor(DataProcessor):
+    """Processor for the SST-2 data set (GLUE version)."""
+
+    def get_example_from_tensor_dict(self, tensor_dict):
+        """See base class."""
+        return InputExample(tensor_dict['idx'].numpy(),
+                            tensor_dict['sentence'].numpy().decode('utf-8'),
+                            None,
+                            str(tensor_dict['label'].numpy()))
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_excel(os.path.join(data_dir, "train.xlsx")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_excel(os.path.join(data_dir, "dev.xlsx")), "dev")
+
+    def get_labels(self):
+        """See base class."""
+        return ["0", "1"]
+
+    def _create_examples(self, dframe, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        guids = dframe['id']
+        texts = dframe['text']
+        labels = dframe['label']
+        for (i, guid) in enumerate(guids):
+            examples.append(
+                InputExample(guid=guid, text_a=texts[i], text_b=None, label=labels[i]))
+        return examples
+
+class ProtestNewsProcessor(DataProcessor):
+    """Processor for the ProtestNews data set (from ProtestNews'19 shared task)."""
+
+    def get_example_from_tensor_dict(self, tensor_dict):
+        """See base class."""
+        return InputExample(tensor_dict['idx'].numpy(),
+                            tensor_dict['sentence'].numpy().decode('utf-8'),
+                            None,
+                            str(tensor_dict['label'].numpy()))
+
+    def get_train_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_json(os.path.join(data_dir, "train.json")), "train")
+
+    def get_dev_examples(self, data_dir):
+        """See base class."""
+        return self._create_examples(
+            self._read_json(os.path.join(data_dir, "dev.json")), "dev")
+
+    def get_labels(self):
+        """See base class."""
+        return ["0", "1"]
+
+    def _create_examples(self, dframe, set_type):
+        """Creates examples for the training and dev sets."""
+        examples = []
+        guids = dframe['id']
+        texts = dframe['text']
+        labels = dframe['label']
+        for (i, guid) in enumerate(guids):
+            examples.append(
+                InputExample(guid=guid, text_a=texts[i], text_b=None, label=labels[i]))
+        return examples
 
 class Sst2Processor(DataProcessor):
     """Processor for the SST-2 data set (GLUE version)."""
@@ -523,6 +592,8 @@ glue_tasks_num_labels = {
     "qnli": 2,
     "rte": 2,
     "wnli": 2,
+    "protestnews": 2,
+    "sentiment": 2
 }
 
 glue_processors = {
@@ -536,6 +607,8 @@ glue_processors = {
     "qnli": QnliProcessor,
     "rte": RteProcessor,
     "wnli": WnliProcessor,
+    "protestnews": ProtestNewsProcessor,
+    "sentiment": SentimentProcessor
 }
 
 glue_output_modes = {
@@ -549,4 +622,6 @@ glue_output_modes = {
     "qnli": "classification",
     "rte": "classification",
     "wnli": "classification",
+    "protetsnews": "classification",
+    "sentiment": "classification"
 }

@@ -45,7 +45,11 @@ if _has_sklearn:
             "f1": f1,
             "acc_and_f1": (acc + f1) / 2,
         }
-
+    def f1(preds, labels, average):
+        f1 = f1_score(y_true=labels, y_pred=preds, average=average)
+        return {
+            "f1-"+ average: f1,
+        }
 
     def pearson_and_spearman(preds, labels):
         pearson_corr = pearsonr(preds, labels)[0]
@@ -79,5 +83,10 @@ if _has_sklearn:
             return {"acc": simple_accuracy(preds, labels)}
         elif task_name == "wnli":
             return {"acc": simple_accuracy(preds, labels)}
+        elif task_name == "sentiment":
+            return acc_and_f1(preds, labels)
+        elif task_name == "protestnews":
+            return f1(preds, labels, 'macro')
+
         else:
             raise KeyError(task_name)
