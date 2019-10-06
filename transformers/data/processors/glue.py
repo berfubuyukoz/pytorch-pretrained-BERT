@@ -289,26 +289,45 @@ class SentimentProcessor(DataProcessor):
     def get_train_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_excel(os.path.join(data_dir, "train.xlsx")), "train")
+            self._read_excel(os.path.join(data_dir, "train.xlsx"),
+                             self.get_id_column_name(),
+                             self.get_label_column_name(),
+                             self.get_text_column_name()),
+            "train")
 
     def get_dev_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_excel(os.path.join(data_dir, "dev.xlsx")), "dev")
+            self._read_excel(os.path.join(data_dir, "dev.xlsx"),
+                             self.get_id_column_name(),
+                             self.get_label_column_name(),
+                             self.get_text_column_name()),
+            "dev")
 
     def get_labels(self):
         """See base class."""
         return ["0", "1"]
 
+    def get_label_column_name(self):
+        return 'label'
+
+    def get_text_column_name(self):
+        return 'text'
+
+    def get_id_column_name(self):
+        return 'id'
+
     def _create_examples(self, dframe, set_type):
         """Creates examples for the training and dev sets."""
         examples = []
-        guids = dframe['id']
-        texts = dframe['text']
-        labels = dframe['label']
+        guids = dframe[self.get_id_column_name()]
+        texts = dframe[self.get_text_column_name()]
+        labels = dframe[self.get_label_column_name()]
         for (i, guid) in enumerate(guids):
+            text = texts[i].strip()
+            if '' in [str(guid).strip(), text]: continue
             examples.append(
-                InputExample(guid=guid, text_a=texts[i], text_b=None, label=labels[i]))
+                InputExample(guid=guid, text_a=text, text_b=None, label=labels[i]))
         return examples
 
 class ProtestNewsProcessor(DataProcessor):
@@ -324,26 +343,45 @@ class ProtestNewsProcessor(DataProcessor):
     def get_train_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_json(os.path.join(data_dir, "train.json")), "train")
+            self._read_json(os.path.join(data_dir, "train.json"),
+                            self.get_id_column_name(),
+                            self.get_label_column_name(),
+                            self.get_text_column_name()),
+            "train")
 
     def get_dev_examples(self, data_dir):
         """See base class."""
         return self._create_examples(
-            self._read_json(os.path.join(data_dir, "dev.json")), "dev")
+            self._read_json(os.path.join(data_dir, "dev.json"),
+                            self.get_id_column_name(),
+                            self.get_label_column_name(),
+                            self.get_text_column_name()),
+            "dev")
 
     def get_labels(self):
         """See base class."""
         return ["0", "1"]
 
+    def get_label_column_name(self):
+        return 'label'
+
+    def get_text_column_name(self):
+        return 'text'
+
+    def get_id_column_name(self):
+        return 'url'
+
     def _create_examples(self, dframe, set_type):
         """Creates examples for the training and dev sets."""
         examples = []
-        guids = dframe['id']
-        texts = dframe['text']
-        labels = dframe['label']
+        guids = dframe[self.get_id_column_name()]
+        texts = dframe[self.get_text_column_name()]
+        labels = dframe[self.get_label_column_name()]
         for (i, guid) in enumerate(guids):
+            text = texts[i].strip()
+            if '' in [str(guid).strip(), text]: continue
             examples.append(
-                InputExample(guid=guid, text_a=texts[i], text_b=None, label=labels[i]))
+                InputExample(guid=guid, text_a=text, text_b=None, label=labels[i]))
         return examples
 
 class Sst2Processor(DataProcessor):

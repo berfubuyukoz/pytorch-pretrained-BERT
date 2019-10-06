@@ -120,11 +120,27 @@ class DataProcessor(object):
                 lines.append(line)
             return lines
 
-    def _read_json(cls, input_file):
-        return pd.read_json(input_file, orient='records')
+    def _read_json(cls, input_file, id, label, text):
+        df = pd.read_json(input_file, orient='records')
+        df[id].replace('', pd.np.nan, inplace=True)
+        df[label].replace('', pd.np.nan, inplace=True)
+        df[text].replace('', pd.np.nan, inplace=True)
 
-    def _read_excel(cls, input_file):
-        return pd.read_excel(input_file, index_col=None, dtype={'text': str})
+        df.dropna(subset=[id], inplace=True)
+        df.dropna(subset=[label], inplace=True)
+        df.dropna(subset=[text], inplace=True)
+        return df
+
+    def _read_excel(cls, input_file, id, label, text):
+        df = pd.read_excel(input_file, index_col=None, dtype={text: str})
+        df[id].replace('', pd.np.nan, inplace=True)
+        df[label].replace('', pd.np.nan, inplace=True)
+        df[text].replace('', pd.np.nan, inplace=True)
+
+        df.dropna(subset=[id], inplace=True)
+        df.dropna(subset=[label], inplace=True)
+        df.dropna(subset=[text], inplace=True)
+        return df
 
 
 
