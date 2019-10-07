@@ -306,7 +306,7 @@ class SentimentProcessor(DataProcessor):
 
     def get_labels(self):
         """See base class."""
-        return ["0", "1"]
+        return [0,1]
 
     def get_label_column_name(self):
         return 'label'
@@ -360,7 +360,7 @@ class ProtestNewsProcessor(DataProcessor):
 
     def get_labels(self):
         """See base class."""
-        return ["0", "1"]
+        return [0,1]
 
     def get_label_column_name(self):
         return 'label'

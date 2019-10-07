@@ -170,7 +170,7 @@ def cached_path(url_or_filename, cache_dir=None, force_download=False, proxies=N
         cache_dir = str(cache_dir)
 
     parsed = urlparse(url_or_filename)
-
+    print("Parsed url using urlparse library.")
     if parsed.scheme in ('http', 'https', 's3'):
         # URL, so get it from the cache (downloading if necessary)
         return get_from_cache(url_or_filename, cache_dir=cache_dir, force_download=force_download, proxies=proxies)
@@ -188,6 +188,7 @@ def cached_path(url_or_filename, cache_dir=None, force_download=False, proxies=N
 def split_s3_path(url):
     """Split a full s3 path into the bucket name and path."""
     parsed = urlparse(url)
+    print("Parsed url using urlparse library.It worked!!!")
     if not parsed.netloc or not parsed.path:
         raise ValueError("bad s3 path {}".format(url))
     bucket_name = parsed.netloc
@@ -316,7 +317,10 @@ def get_from_cache(url, cache_dir=None, force_download=False, proxies=None):
             with open(meta_path, 'w') as meta_file:
                 output_string = json.dumps(meta)
                 if sys.version_info[0] == 2 and isinstance(output_string, str):
-                    output_string = unicode(output_string, 'utf-8')  # The beauty of python 2
+                    try:
+                        output_string = unicode(output_string,'utf-8')  # The beauty of python 2
+                    except:
+                        print('Cannot use unicode python2 style!!!')
                 meta_file.write(output_string)
 
             logger.info("removing temp file %s", temp_file.name)
