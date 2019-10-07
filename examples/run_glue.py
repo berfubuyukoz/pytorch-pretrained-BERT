@@ -79,18 +79,20 @@ def set_seed(args):
 def train(args, train_dataset, model, tokenizer):
     """ Train the model """
     if args.local_rank in [-1, 0]:
-        tb_writer = SummaryWriter()
+        tb_writer = SummaryWriter(logdir=args.output_dir)
 
     args.train_batch_size = args.per_gpu_train_batch_size * max(1, args.n_gpu)
     train_sampler = RandomSampler(train_dataset) if args.local_rank == -1 else DistributedSampler(train_dataset)
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=args.train_batch_size)
-
+    optimization_steps_per_epoch = len(train_dataloader)
     if args.max_steps > 0:
         t_total = args.max_steps
-        args.num_train_epochs = args.max_steps // (len(train_dataloader) // args.gradient_accumulation_steps) + 1
+        args.num_train_epochs = args.max_steps // (optimization_steps_per_epoch // args.gradient_accumulation_steps) + 1
     else:
-        t_total = len(train_dataloader) // args.gradient_accumulation_steps * args.num_train_epochs
+        t_total = optimization_steps_per_epoch // args.gradient_accumulation_steps * args.num_train_epochs
 
+    if args.logging_steps == -1: args.logging_steps = optimization_steps_per_epoch
+    if args.save_steps == -1: args.save_steps = optimization_steps_per_epoch
     # Prepare optimizer and schedule (linear warmup and decay)
     no_decay = ['bias', 'LayerNorm.weight']
     optimizer_grouped_parameters = [
@@ -369,9 +371,9 @@ def main():
                         help="Linear warmup over warmup_steps.")
 
     parser.add_argument('--logging_steps', type=int, default=50,
-                        help="Log every X updates steps.")
+                        help="Log every X updates steps. If -1, it will be set to the optimization_steps_per_epoch in the code.")
     parser.add_argument('--save_steps', type=int, default=50,
-                        help="Save checkpoint every X updates steps.")
+                        help="Save checkpoint every X updates steps. If -1, it will be set to the optimization_steps_per_epoch in the code.")
     parser.add_argument("--eval_all_checkpoints", action='store_true',
                         help="Evaluate all checkpoints starting with the same prefix as model_name ending and ending with step number")
     parser.add_argument("--no_cuda", action='store_true',
