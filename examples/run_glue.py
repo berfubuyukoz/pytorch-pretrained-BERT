@@ -33,7 +33,7 @@ from tqdm import tqdm, trange
 
 import sys
 #sys.path.insert(0,'transformers/transformers')
-sys.path.insert(0,'/raid/users/bbuyukoz/anaconda3/envs/flairenv/work/code/transformers')
+sys.path.insert(0,'/content/transformers')
 
 from transformers import (WEIGHTS_NAME, BertConfig,
                                   BertForSequenceClassification, BertTokenizer,
