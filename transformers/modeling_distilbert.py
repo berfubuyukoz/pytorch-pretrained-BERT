@@ -460,11 +460,11 @@ class DistilBertModel(DistilBertPreTrainedModel):
         else:
             head_mask = [None] * self.config.num_hidden_layers
 
-        embedding_output = self.embeddings(input_ids)   # (bs, seq_length, dim)
+        embedding_output = self.embeddings(input_ids)   # input ids: (bs, seq_len)). # embedding_output: (bs, seq_length, dim)
         tfmr_output = self.transformer(x=embedding_output,
                                        attn_mask=attention_mask,
                                        head_mask=head_mask)
-        hidden_state = tfmr_output[0]
+        hidden_state = tfmr_output[0] # (bs, seq_length, dim)
         output = (hidden_state, ) + tfmr_output[1:]
 
         return output # last-layer hidden-state, (all hidden_states), (all attentions)
@@ -592,8 +592,8 @@ class DistilBertForSequenceClassification(DistilBertPreTrainedModel):
         distilbert_output = self.distilbert(input_ids=input_ids,
                                             attention_mask=attention_mask,
                                             head_mask=head_mask)
-        hidden_state = distilbert_output[0]                    # (bs, seq_len, dim)
-        pooled_output = hidden_state[:, 0]                    # (bs, dim)
+        hidden_state = distilbert_output[0]                    # (bs, seq_len, dim) #Sequence of hiddens states in the last (top) layer (i.e. last_hidden_state)
+        pooled_output = hidden_state[:, 0]                    # (bs, dim) # We "pool" the model by simply taking the hidden state corresponding to the first token.
         pooled_output = self.pre_classifier(pooled_output)   # (bs, dim)
         pooled_output = nn.ReLU()(pooled_output)             # (bs, dim)
         pooled_output = self.dropout(pooled_output)         # (bs, dim)
