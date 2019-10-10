@@ -32,7 +32,8 @@ from tensorboardX import SummaryWriter
 from tqdm import tqdm, trange
 
 import sys
-sys.path.insert(0,'transformers/transformers')
+sys.path.insert(0,'/home/mkbb/git/transformers')
+#sys.path.insert(0,'/raid/users/bbuyukoz/anaconda3/envs/flairenv/work/code/transformers')
 
 from transformers import (WEIGHTS_NAME, BertConfig,
                                   BertForSequenceClassification, BertTokenizer,
@@ -314,6 +315,18 @@ def load_and_cache_examples(args, task, tokenizer, evaluate=False):
     dataset = TensorDataset(all_input_ids, all_attention_mask, all_token_type_ids, all_labels)
     return dataset
 
+def freeze_embeddings(model_name, model):
+    if model_name == 'bert-base-uncased':
+        for p in model.bert.embeddings.parameters():
+            p.requires_grad = False
+    elif model_name == 'distilbert-base-uncased':
+        for p in model.distilbert.embeddings.parameters():
+            p.requires_grad = False
+
+def print_freezed_layers(model):
+    for name, param in model.named_parameters():
+        if not param.requires_grad:
+            logger.info(name)
 
 def main():
     parser = argparse.ArgumentParser()
@@ -348,6 +361,8 @@ def main():
                         help="Rul evaluation during training at each logging step.")
     parser.add_argument("--do_lower_case", action='store_true',
                         help="Set this flag if you are using an uncased model.")
+    parser.add_argument("--do_freeze", action='store_true',
+                        help="Whether to freeze embeddings.")
 
     parser.add_argument("--per_gpu_train_batch_size", default=8, type=int,
                         help="Batch size per GPU/CPU for training.")
@@ -446,6 +461,12 @@ def main():
     config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
     tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else args.model_name_or_path, do_lower_case=args.do_lower_case)
     model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path), config=config)
+
+    if args.do_freeze:
+        logger.info("Freezing embeddings...")
+        freeze_embeddings(args.model_name_or_path,model)
+        logger.info("Freezed params of embeddings:")
+        print_freezed_layers(model)
 
     if args.local_rank == 0:
         torch.distributed.barrier()  # Make sure only the first process in distributed training will download model & vocab
