@@ -319,7 +319,7 @@ class SentimentProcessor(DataProcessor):
             label = str(labels[i]).strip()
             text = texts[i].strip()
             if '' in [str(guid).strip(), text, label]: continue
-            if mode ==  'test'
+            if mode ==  'test':
                 examples.append(
                     InputExample(guid=guid, text_a=text, text_b=None, label=None))
             else:
@@ -370,7 +370,7 @@ class ProtestNewsProcessor(DataProcessor):
             label = str(labels[i]).strip()
             text = str(texts[i]).strip()
             if '' in [str(guid).strip(), text, label]: continue
-            if mode ==  'test'
+            if mode ==  'test':
                 examples.append(
                     InputExample(guid=guid, text_a=text, text_b=None, label=None))
             else:
