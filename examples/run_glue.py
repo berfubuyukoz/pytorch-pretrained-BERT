@@ -337,8 +337,6 @@ def main():
                         help="The input data dir. Should contain the .tsv files (or other data files) for the task.")
     parser.add_argument("--model_type", default=None, type=str, required=True,
                         help="Model type selected in the list: " + ", ".join(MODEL_CLASSES.keys()))
-    parser.add_argument("--model_name_or_path", default=None, type=str, required=True,
-                        help="Path to pre-trained model or shortcut name selected in the list: " + ", ".join(ALL_MODELS))
     parser.add_argument("--task_name", default=None, type=str, required=True,
                         help="The name of the task to train selected in the list: " + ", ".join(processors.keys()))
     parser.add_argument("--output_dir", default=None, type=str, required=True,
@@ -360,8 +358,10 @@ def main():
                         help="Whether to run eval on the dev set.")
     parser.add_argument("--do_predict", action="store_true",
                         help="Whether to run predictions on the test set.")
-    parser.add_argument("--predict_model_dir", default=None, type=str, required=True,
-                        help="A path to the directory to the model to be used for prediction. Directory must contain model weights saved using :func:`~transformers.PreTrainedModel.save_pretrained`")
+    parser.add_argument("--model_name_or_path", default=None, type=str,
+                        help="Required if --do_train. Path to pre-trained model or shortcut name selected in the list: " + ", ".join(ALL_MODELS))
+    parser.add_argument("--predict_model_dir", default=None, type=str,
+                        help="Required if --do_predict. A path to the directory to the model to be used for prediction. Directory must contain model weights saved using :func:`~transformers.PreTrainedModel.save_pretrained`")
     parser.add_argument("--evaluate_during_training", action='store_true',
                         help="Rul evaluation during training at each logging step.")
     parser.add_argument("--do_lower_case", action='store_true',
@@ -419,6 +419,12 @@ def main():
     if os.path.exists(args.output_dir) and os.listdir(args.output_dir) and args.do_train and not args.overwrite_output_dir:
         raise ValueError("Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(args.output_dir))
 
+    if args.do_train:
+        assert args.model_name_or_path is not None
+
+    if args.do_predict:
+        assert args.predict_model_dir is not None
+
     # Setup distant debugging if needed
     if args.server_ip and args.server_port:
         # Distant debugging - see https://code.visualstudio.com/docs/python/debugging#_attach-to-a-local-script
@@ -463,9 +469,11 @@ def main():
 
     args.model_type = args.model_type.lower()
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
-    config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
-    tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else args.model_name_or_path, do_lower_case=args.do_lower_case)
-    model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path), config=config)
+
+    if args.do_train:
+        config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
+        tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else args.model_name_or_path, do_lower_case=args.do_lower_case)
+        model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path), config=config)
 
     if args.do_freeze:
         logger.info("Freezing embeddings...")
@@ -532,8 +540,8 @@ def main():
             #scores = dict((k + '_{}'.format(global_step), v) for k, v in result.items())
 
     if args.do_predict and args.local_rank in [-1, 0]:
-        tokenizer = tokenizer_class.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
-        model = model_class.from_pretrained(args.output_dir)
+        tokenizer = tokenizer_class.from_pretrained(args.predict_model_dir, do_lower_case=args.do_lower_case)
+        model = model_class.from_pretrained(args.predict_model_dir)
         model.to(args.device)
         scores, predictions_table = evaluate(args, model, tokenizer, mode='test')
 
