@@ -22,6 +22,7 @@ import glob
 import logging
 import os
 import random
+import pandas as pd
 
 import numpy as np
 import torch
@@ -172,7 +173,7 @@ def train(args, train_dataset, model, tokenizer):
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     # Log metrics
                     if args.local_rank == -1 and args.evaluate_during_training:  # Only evaluate when single GPU otherwise metrics may not average well
-                        results = evaluate(args, model, tokenizer)
+                        results, _ = evaluate(args, model, mode='dev', tokenizer)
                         for key, value in results.items():
                             tb_writer.add_scalar('eval_{}'.format(key), value, global_step)
                     tb_writer.add_scalar('lr', scheduler.get_lr()[0], global_step)
@@ -202,10 +203,10 @@ def train(args, train_dataset, model, tokenizer):
     return global_step, tr_loss / global_step
 
 
-def evaluate(args, model, tokenizer, prefix=""):
+def evaluate(args, model, tokenizer, mode, prefix=""):
     # Loop to handle MNLI double evaluation (matched, mis-matched)
     results = {}
-    eval_dataset = load_and_cache_examples(args, eval_task, tokenizer, mode='dev')
+    eval_dataset, eval_examples = load_and_cache_examples(args, eval_task, tokenizer, mode=mode)
 
     if not os.path.exists(args.output_dir) and args.local_rank in [-1, 0]:
         os.makedirs(args.output_dir)
@@ -223,6 +224,7 @@ def evaluate(args, model, tokenizer, prefix=""):
     nb_eval_steps = 0
     preds = None
     out_label_ids = None
+    out_input_ids = None
     model.eval()
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
         batch = tuple(t.to(args.device) for t in batch)
@@ -241,92 +243,30 @@ def evaluate(args, model, tokenizer, prefix=""):
         if preds is None:
             preds = logits.detach().cpu().numpy()
             out_label_ids = inputs['labels'].detach().cpu().numpy()
+            out_input_ids = inputs['input_ids'].detach().cpu().numpy()
         else:
             preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
             out_label_ids = np.append(out_label_ids, inputs['labels'].detach().cpu().numpy(), axis=0)
+            out_input_ids = np.append(out_input_ids, inputs['input_ids'].detach().cpu().numpy(), axis=0)
+
 
     eval_loss = eval_loss / nb_eval_steps
     preds = np.argmax(preds, axis=1)
-    result = compute_metrics(eval_task, preds, out_label_ids)
-    results.update(result)
+    logger.info("***** Preds first 10: {} *****".format(preds[:10]))
 
-    output_eval_file = os.path.join(eval_output_dir, "eval_results.txt")
-    with open(output_eval_file, "w") as writer:
-        logger.info("***** Eval results {} *****".format(prefix))
-        for key in sorted(result.keys()):
-            logger.info("  %s = %s", key, str(result[key]))
-            writer.write("%s = %s\n" % (key, str(result[key])))
+    scores = compute_metrics(eval_task, preds, out_label_ids)
 
-    return results
+    predictions_table = pd.Dataframe()
 
-def evaluate_n_predict(args, model, tokenizer, mode, prefix=""):
-    eval_dataset = load_and_cache_examples(args, tokenizer, mode=mode)
-
-    args.eval_batch_size = args.per_gpu_eval_batch_size * max(1, args.n_gpu)
-    # Note that DistributedSampler samples randomly
-    eval_sampler = SequentialSampler(eval_dataset) if args.local_rank == -1 else DistributedSampler(eval_dataset)
-    eval_dataloader = DataLoader(eval_dataset, sampler=eval_sampler, batch_size=args.eval_batch_size)
-
-    # Eval!
-    logger.info("***** Running evaluation %s *****", prefix)
-    logger.info("  Num examples = %d", len(eval_dataset))
-    logger.info("  Batch size = %d", args.eval_batch_size)
-    eval_loss = 0.0
-    nb_eval_steps = 0
-    preds = None
-    out_label_ids = None
-    model.eval()
-    for batch in tqdm(eval_dataloader, desc="Evaluating"):
-        batch = tuple(t.to(args.device) for t in batch)
-
-        with torch.no_grad():
-            inputs = {"input_ids": batch[0],
-                      "attention_mask": batch[1],
-                      "token_type_ids": batch[2] if args.model_type in ["bert", "xlnet"] else None,
-                      # XLM and RoBERTa don"t use segment_ids
-                      "labels": batch[3]}
-            outputs = model(**inputs)
-            tmp_eval_loss, logits = outputs[:2]
-
-            eval_loss += tmp_eval_loss.item()
-        nb_eval_steps += 1
-        if preds is None:
-            preds = logits.detach().cpu().numpy()
-            out_label_ids = inputs["labels"].detach().cpu().numpy()
-        else:
-            preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
-            out_label_ids = np.append(out_label_ids, inputs["labels"].detach().cpu().numpy(), axis=0)
-
-    eval_loss = eval_loss / nb_eval_steps
-    preds = np.argmax(preds, axis=2)
-
-    label_map = {i: label for i, label in enumerate(labels)}
-
-    out_label_list = [[] for _ in range(out_label_ids.shape[0])]
-    preds_list = [[] for _ in range(out_label_ids.shape[0])]
-
-    for i in range(out_label_ids.shape[0]):
-        for j in range(out_label_ids.shape[1]):
-            if out_label_ids[i, j] != pad_token_label_id:
-                out_label_list[i].append(label_map[out_label_ids[i][j]])
-                preds_list[i].append(label_map[preds[i][j]])
-
-    results = {
-        "loss": eval_loss,
-        "precision": precision_score(out_label_list, preds_list),
-        "recall": recall_score(out_label_list, preds_list),
-        "f1": f1_score(out_label_list, preds_list)
-    }
-
-    logger.info("***** Eval results %s *****", prefix)
-    for key in sorted(results.keys()):
-        logger.info("  %s = %s", key, str(results[key]))
-
-    return results, preds_list
-
+    if mode=='test':
+        sentence_ids = [e.guid for e in eval_examples]
+        sentence_texts = [e.text_a for e in eval_examples]
+        predictions_zip = list(zip(sentence_ids, sentence_texts, out_label_ids, preds)) 
+        predictions_table = DataFrame(predictions_zip, columns = ['id', 'text', 'true_value', 'prediction'])
+    return scores, predictions_table
 
 def load_and_cache_examples(args, task, tokenizer, mode):
-    if args.local_rank not in [-1, 0] and not evaluate:
+    if args.local_rank not in [-1, 0] and mode == 'train':
         torch.distributed.barrier()  # Make sure only the first process in distributed training process the dataset, and the others will use the cache
 
     processor = processors[task]()
@@ -346,7 +286,8 @@ def load_and_cache_examples(args, task, tokenizer, mode):
         if task in ['mnli', 'mnli-mm'] and args.model_type in ['roberta']:
             # HACK(label indices are swapped in RoBERTa pretrained model)
             label_list[1], label_list[2] = label_list[2], label_list[1] 
-        examples = processor.get_dev_examples(args.data_dir) if evaluate else processor.get_train_examples(args.data_dir)
+
+        examples = processor.get_examples(args.data_dir, mode)
         features = convert_examples_to_features(examples,
                                                 tokenizer,
                                                 label_list=label_list,
@@ -373,7 +314,7 @@ def load_and_cache_examples(args, task, tokenizer, mode):
         all_labels = torch.tensor([f.label for f in features], dtype=torch.float)
 
     dataset = TensorDataset(all_input_ids, all_attention_mask, all_token_type_ids, all_labels)
-    return dataset
+    return dataset, examples
 
 def freeze_embeddings(model_name, model):
     if model_name == 'bert-base-uncased':
@@ -417,6 +358,10 @@ def main():
                         help="Whether to run training.")
     parser.add_argument("--do_eval", action='store_true',
                         help="Whether to run eval on the dev set.")
+    parser.add_argument("--do_predict", action="store_true",
+                        help="Whether to run predictions on the test set.")
+    parser.add_argument("--predict_model_dir", default=None, type=str, required=True,
+                        help="A path to the directory to the model to be used for prediction. Directory must contain model weights saved using :func:`~transformers.PreTrainedModel.save_pretrained`")
     parser.add_argument("--evaluate_during_training", action='store_true',
                         help="Rul evaluation during training at each logging step.")
     parser.add_argument("--do_lower_case", action='store_true',
@@ -538,7 +483,7 @@ def main():
 
     # Training
     if args.do_train:
-        train_dataset = load_and_cache_examples(args, args.task_name, tokenizer, mode='train')
+        train_dataset, _= load_and_cache_examples(args, args.task_name, tokenizer, mode='train')
         global_step, tr_loss = train(args, train_dataset, model, tokenizer)
         logger.info(" global_step = %s, average loss = %s", global_step, tr_loss)
 
@@ -566,7 +511,6 @@ def main():
 
 
     # Evaluation
-    results = {}
     if args.do_eval and args.local_rank in [-1, 0]:
         tokenizer = tokenizer_class.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
         checkpoints = [args.output_dir]
@@ -578,38 +522,30 @@ def main():
             global_step = checkpoint.split('-')[-1] if len(checkpoints) > 1 else ""
             model = model_class.from_pretrained(checkpoint)
             model.to(args.device)
-            result = evaluate(args, model, tokenizer, prefix=global_step)
-            result = dict((k + '_{}'.format(global_step), v) for k, v in result.items())
-            results.update(result)
+            scores, _ = evaluate(args, model, tokenizer, mode='dev', prefix=global_step)
+            output_eval_file = os.path.join(evaloutput_dir, mode + "eval_scores.txt")
+            with open(output_eval_file, "w") as writer:
+            logger.info("***** Eval scores {} *****".format(prefix))
+            for key in sorted(scores.keys()):
+                logger.info("  %s = %s", key, str(scores[key]))
+                writer.write("%s = %s\n" % (key, str(scores[key])))
+            #scores = dict((k + '_{}'.format(global_step), v) for k, v in result.items())
 
     if args.do_predict and args.local_rank in [-1, 0]:
         tokenizer = tokenizer_class.from_pretrained(args.output_dir, do_lower_case=args.do_lower_case)
         model = model_class.from_pretrained(args.output_dir)
         model.to(args.device)
-        result, predictions = evaluate_n_predict(args, model, tokenizer, labels, pad_token_label_id, mode="test")
+        scores, predictions_table = evaluate(args, model, tokenizer, mode='test')
+
         # Save results
-        output_test_results_file = os.path.join(args.output_dir, "test_results.txt")
-        with open(output_test_results_file, "w") as writer:
-            for key in sorted(result.keys()):
-                writer.write("{} = {}\n".format(key, str(result[key])))
+        output_test_scores_file = os.path.join(args.output_dir, "test_scores.txt")
+        with open(output_test_scores_file, "w") as writer:
+            for key in sorted(scores.keys()):
+                writer.write("{} = {}\n".format(key, str(scores[key])))
+
         # Save predictions
         output_test_predictions_file = os.path.join(args.output_dir, "test_predictions.txt")
-        with open(output_test_predictions_file, "w") as writer:
-            with open(os.path.join(args.data_dir, "test.txt"), "r") as f:
-                example_id = 0
-                for line in f:
-                    if line.startswith("-DOCSTART-") or line == "" or line == "\n":
-                        writer.write(line)
-                        if not predictions[example_id]:
-                            example_id += 1
-                    elif predictions[example_id]:
-                        output_line = line.split()[0] + " " + predictions[example_id].pop(0) + "\n"
-                        writer.write(output_line)
-                    else:
-                        logger.warning("Maximum sequence length exceeded: No prediction for '%s'.", line.split()[0])
-
-    return results
-
+        predictions_table.to_excel(output_test_predictions_file)
 
 if __name__ == "__main__":
     main()
