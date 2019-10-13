@@ -34,7 +34,7 @@ from tqdm import tqdm, trange
 
 import sys
 #sys.path.insert(0,'transformers/transformers')
-#sys.path.insert(0,'/content/transformers')
+sys.path.insert(0,'/content/transformers')
 
 from transformers import (WEIGHTS_NAME, BertConfig,
                                   BertForSequenceClassification, BertTokenizer,
@@ -173,7 +173,7 @@ def train(args, train_dataset, model, tokenizer):
                 if args.local_rank in [-1, 0] and args.logging_steps > 0 and global_step % args.logging_steps == 0:
                     # Log metrics
                     if args.local_rank == -1 and args.evaluate_during_training:  # Only evaluate when single GPU otherwise metrics may not average well
-                        results, _ = evaluate(args, model, mode='dev', tokenizer)
+                        results, _ = evaluate(args, model, tokenizer, mode='dev')
                         for key, value in results.items():
                             tb_writer.add_scalar('eval_{}'.format(key), value, global_step)
                     tb_writer.add_scalar('lr', scheduler.get_lr()[0], global_step)
@@ -206,7 +206,7 @@ def train(args, train_dataset, model, tokenizer):
 def evaluate(args, model, tokenizer, mode, prefix=""):
     # Loop to handle MNLI double evaluation (matched, mis-matched)
     results = {}
-    eval_dataset, eval_examples = load_and_cache_examples(args, eval_task, tokenizer, mode=mode)
+    eval_dataset, eval_examples = load_and_cache_examples(args, args.task_name, tokenizer, mode=mode)
 
     if not os.path.exists(args.output_dir) and args.local_rank in [-1, 0]:
         os.makedirs(args.output_dir)
@@ -254,7 +254,7 @@ def evaluate(args, model, tokenizer, mode, prefix=""):
     preds = np.argmax(preds, axis=1)
     logger.info("***** Preds first 10: {} *****".format(preds[:10]))
 
-    scores = compute_metrics(eval_task, preds, out_label_ids)
+    scores = compute_metrics(args.task_name, preds, out_label_ids)
 
     predictions_table = pd.Dataframe()
 
@@ -341,6 +341,8 @@ def main():
                         help="The name of the task to train selected in the list: " + ", ".join(processors.keys()))
     parser.add_argument("--output_dir", default=None, type=str, required=True,
                         help="The output directory where the model predictions and checkpoints will be written.")
+    parser.add_argument("--model_name_or_path", default=None, type=str, required=True,
+                        help="Required if --do_train. Path to pre-trained model or shortcut name selected in the list: " + ", ".join(ALL_MODELS))
 
     ## Other parameters
     parser.add_argument("--config_name", default="", type=str,
@@ -358,8 +360,6 @@ def main():
                         help="Whether to run eval on the dev set.")
     parser.add_argument("--do_predict", action="store_true",
                         help="Whether to run predictions on the test set.")
-    parser.add_argument("--model_name_or_path", default=None, type=str,
-                        help="Required if --do_train. Path to pre-trained model or shortcut name selected in the list: " + ", ".join(ALL_MODELS))
     parser.add_argument("--predict_model_dir", default=None, type=str,
                         help="Required if --do_predict. A path to the directory to the model to be used for prediction. Directory must contain model weights saved using :func:`~transformers.PreTrainedModel.save_pretrained`")
     parser.add_argument("--evaluate_during_training", action='store_true',
@@ -419,9 +419,6 @@ def main():
     if os.path.exists(args.output_dir) and os.listdir(args.output_dir) and args.do_train and not args.overwrite_output_dir:
         raise ValueError("Output directory ({}) already exists and is not empty. Use --overwrite_output_dir to overcome.".format(args.output_dir))
 
-    if args.do_train:
-        assert args.model_name_or_path is not None
-
     if args.do_predict:
         assert args.predict_model_dir is not None
 
@@ -470,10 +467,9 @@ def main():
     args.model_type = args.model_type.lower()
     config_class, model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
 
-    if args.do_train:
-        config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
-        tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else args.model_name_or_path, do_lower_case=args.do_lower_case)
-        model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path), config=config)
+    config = config_class.from_pretrained(args.config_name if args.config_name else args.model_name_or_path, num_labels=num_labels, finetuning_task=args.task_name)
+    tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else args.model_name_or_path, do_lower_case=args.do_lower_case)
+    model = model_class.from_pretrained(args.model_name_or_path, from_tf=bool('.ckpt' in args.model_name_or_path), config=config)
 
     if args.do_freeze:
         logger.info("Freezing embeddings...")
@@ -533,10 +529,10 @@ def main():
             scores, _ = evaluate(args, model, tokenizer, mode='dev', prefix=global_step)
             output_eval_file = os.path.join(evaloutput_dir, mode + "eval_scores.txt")
             with open(output_eval_file, "w") as writer:
-            logger.info("***** Eval scores {} *****".format(prefix))
-            for key in sorted(scores.keys()):
-                logger.info("  %s = %s", key, str(scores[key]))
-                writer.write("%s = %s\n" % (key, str(scores[key])))
+                logger.info("***** Eval scores {} *****".format(prefix))
+                for key in sorted(scores.keys()):
+                    logger.info("  %s = %s", key, str(scores[key]))
+                    writer.write("%s = %s\n" % (key, str(scores[key])))
             #scores = dict((k + '_{}'.format(global_step), v) for k, v in result.items())
 
     if args.do_predict and args.local_rank in [-1, 0]:
