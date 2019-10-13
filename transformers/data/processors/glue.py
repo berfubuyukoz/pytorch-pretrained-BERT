@@ -292,8 +292,7 @@ class SentimentProcessor(DataProcessor):
             self._read_excel(os.path.join(data_dir, mode + ".xlsx"),
                              self.get_id_column_name(),
                              self.get_label_column_name(),
-                             self.get_text_column_name()),
-            mode
+                             self.get_text_column_name())
             )
 
     def get_labels(self):
@@ -309,7 +308,7 @@ class SentimentProcessor(DataProcessor):
     def get_id_column_name(self):
         return 'id'
 
-    def _create_examples(self, dframe, mode):
+    def _create_examples(self, dframe):
         """Creates examples for the training and dev sets."""
         examples = []
         guids = dframe[self.get_id_column_name()]
@@ -319,11 +318,7 @@ class SentimentProcessor(DataProcessor):
             label = str(labels[i]).strip()
             text = texts[i].strip()
             if '' in [str(guid).strip(), text, label]: continue
-            if mode ==  'test':
-                examples.append(
-                    InputExample(guid=guid, text_a=text, text_b=None, label=None))
-            else:
-                examples.append(
+            examples.append(
                     InputExample(guid=guid, text_a=text, text_b=None, label=label))
         return examples
 
@@ -343,8 +338,7 @@ class ProtestNewsProcessor(DataProcessor):
             self._read_json(os.path.join(data_dir, mode + ".json"),
                             self.get_id_column_name(),
                             self.get_label_column_name(),
-                            self.get_text_column_name()),
-            mode
+                            self.get_text_column_name())
             )
 
     def get_labels(self):
@@ -360,7 +354,7 @@ class ProtestNewsProcessor(DataProcessor):
     def get_id_column_name(self):
         return 'url'
 
-    def _create_examples(self, dframe, mode):
+    def _create_examples(self, dframe):
         """Creates examples for the training and dev sets."""
         examples = []
         guids = dframe[self.get_id_column_name()]
@@ -370,11 +364,7 @@ class ProtestNewsProcessor(DataProcessor):
             label = str(labels[i]).strip()
             text = str(texts[i]).strip()
             if '' in [str(guid).strip(), text, label]: continue
-            if mode ==  'test':
-                examples.append(
-                    InputExample(guid=guid, text_a=text, text_b=None, label=None))
-            else:
-                examples.append(
+            examples.append(
                     InputExample(guid=guid, text_a=text, text_b=None, label=label))
         return examples
 
