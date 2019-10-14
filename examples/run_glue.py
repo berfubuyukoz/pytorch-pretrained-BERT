@@ -549,7 +549,7 @@ def main():
                 writer.write("{} = {}\n".format(key, str(scores[key])))
 
         # Save predictions
-        output_test_predictions_file = os.path.join(args.output_dir, "test_predictions.txt")
+        output_test_predictions_file = os.path.join(args.output_dir, "test_predictions.xlsx")
         predictions_table.to_excel(output_test_predictions_file)
 
 if __name__ == "__main__":
