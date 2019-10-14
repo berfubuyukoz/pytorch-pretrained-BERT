@@ -359,12 +359,15 @@ def main():
                         help="Whether to run training.")
     parser.add_argument("--do_eval", action='store_true',
                         help="Whether to run eval on the dev set.")
+
+
     parser.add_argument("--do_predict", action='store_true',
                         help="Whether to run prediction.")
     parser.add_argument("--prediction_file",default=None, type=str,
                         help="File to store test predictions.")
     parser.add_argument("--predict_model_dir", default=None, type=str,
                         help="Required if --do_predict. A path to the directory to the model to be used for prediction. Directory must contain model weights saved using :func:`~transformers.PreTrainedModel.save_pretrained`")
+
     parser.add_argument("--evaluate_during_training", action='store_true',
                         help="Rul evaluation during training at each logging step.")
     parser.add_argument("--do_lower_case", action='store_true',
@@ -422,6 +425,7 @@ def main():
 
     if args.do_predict:
         assert args.predict_model_dir is not None
+        assert args.prediction_file is not None
 
     # Setup distant debugging if needed
     if args.server_ip and args.server_port:
