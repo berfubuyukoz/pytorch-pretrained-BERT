@@ -365,6 +365,8 @@ def main():
                         help="Whether to run prediction.")
     parser.add_argument("--prediction_file",default=None, type=str,
                         help="File to store test predictions.")
+    parser.add_argument("--scores_file", default=None, type=str,
+                        help="File to store test scores.")
     parser.add_argument("--predict_model_dir", default=None, type=str,
                         help="Required if --do_predict. A path to the directory to the model to be used for prediction. Directory must contain model weights saved using :func:`~transformers.PreTrainedModel.save_pretrained`")
 
@@ -426,6 +428,7 @@ def main():
     if args.do_predict:
         assert args.predict_model_dir is not None
         assert args.prediction_file is not None
+        assert args.scores_file is not None
 
     # Setup distant debugging if needed
     if args.server_ip and args.server_port:
@@ -547,7 +550,7 @@ def main():
         scores, predictions_table = evaluate(args, model, tokenizer, mode='test')
 
         # Save results
-        output_test_scores_file = os.path.join(args.output_dir, "test_scores.txt")
+        output_test_scores_file = os.path.join(args.output_dir, args.scores_file)
         with open(output_test_scores_file, "w") as writer:
             for key in sorted(scores.keys()):
                 writer.write("{} = {}\n".format(key, str(scores[key])))
