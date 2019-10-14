@@ -256,13 +256,13 @@ def evaluate(args, model, tokenizer, mode, prefix=""):
 
     scores = compute_metrics(args.task_name, preds, out_label_ids)
 
-    predictions_table = pd.Dataframe()
+    predictions_table = pd.DataFrame()
 
     if mode=='test':
         sentence_ids = [e.guid for e in eval_examples]
         sentence_texts = [e.text_a for e in eval_examples]
         predictions_zip = list(zip(sentence_ids, sentence_texts, out_label_ids, preds)) 
-        predictions_table = DataFrame(predictions_zip, columns = ['id', 'text', 'true_value', 'prediction'])
+        predictions_table = pd.DataFrame(predictions_zip, columns = ['id', 'text', 'true_value', 'prediction'])
     return scores, predictions_table
 
 def load_and_cache_examples(args, task, tokenizer, mode):
