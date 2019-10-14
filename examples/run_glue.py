@@ -277,7 +277,8 @@ def load_and_cache_examples(args, task, tokenizer, mode):
         list(filter(None, args.model_name_or_path.split('/'))).pop(),
         str(args.max_seq_length),
         str(task)))
-    examples = []
+
+    examples = processor.get_examples(args.data_dir, mode)
     if os.path.exists(cached_features_file):
         logger.info("Loading features from cached file %s", cached_features_file)
         features = torch.load(cached_features_file)
@@ -286,9 +287,8 @@ def load_and_cache_examples(args, task, tokenizer, mode):
         label_list = processor.get_labels()
         if task in ['mnli', 'mnli-mm'] and args.model_type in ['roberta']:
             # HACK(label indices are swapped in RoBERTa pretrained model)
-            label_list[1], label_list[2] = label_list[2], label_list[1] 
+            label_list[1], label_list[2] = label_list[2], label_list[1]
 
-        examples = processor.get_examples(args.data_dir, mode)
         features = convert_examples_to_features(examples,
                                                 tokenizer,
                                                 label_list=label_list,
