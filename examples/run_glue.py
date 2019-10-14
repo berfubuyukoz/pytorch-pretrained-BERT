@@ -359,8 +359,10 @@ def main():
                         help="Whether to run training.")
     parser.add_argument("--do_eval", action='store_true',
                         help="Whether to run eval on the dev set.")
-    parser.add_argument("--do_predict", action="store_true",
-                        help="Whether to run predictions on the test set.")
+    parser.add_argument("--do_predict", action='store_true',
+                        help="Whether to run prediction.")
+    parser.add_argument("--prediction_file",default=None, type=str,
+                        help="File to store test predictions.")
     parser.add_argument("--predict_model_dir", default=None, type=str,
                         help="Required if --do_predict. A path to the directory to the model to be used for prediction. Directory must contain model weights saved using :func:`~transformers.PreTrainedModel.save_pretrained`")
     parser.add_argument("--evaluate_during_training", action='store_true',
@@ -390,7 +392,6 @@ def main():
                         help="If > 0: set total number of training steps to perform. Override num_train_epochs.")
     parser.add_argument("--warmup_steps", default=0, type=int,
                         help="Linear warmup over warmup_steps.")
-
     parser.add_argument('--logging_steps', type=int, default=50,
                         help="Log every X updates steps. If -1, it will be set to the optimization_steps_per_epoch in the code.")
     parser.add_argument('--save_steps', type=int, default=50,
@@ -405,7 +406,6 @@ def main():
                         help="Overwrite the cached training and evaluation sets")
     parser.add_argument('--seed', type=int, default=42,
                         help="random seed for initialization")
-
     parser.add_argument('--fp16', action='store_true',
                         help="Whether to use 16-bit (mixed) precision (through NVIDIA apex) instead of 32-bit")
     parser.add_argument('--fp16_opt_level', type=str, default='O1',
@@ -528,9 +528,9 @@ def main():
             model = model_class.from_pretrained(checkpoint)
             model.to(args.device)
             scores, _ = evaluate(args, model, tokenizer, mode='dev', prefix=global_step)
-            output_eval_file = os.path.join(evaloutput_dir, mode + "eval_scores.txt")
+            output_eval_file = os.path.join(args.output_dir, "dev_eval_scores.txt")
             with open(output_eval_file, "w") as writer:
-                logger.info("***** Eval scores {} *****".format(prefix))
+                logger.info("***** Eval scores {} *****".format(global_step))
                 for key in sorted(scores.keys()):
                     logger.info("  %s = %s", key, str(scores[key]))
                     writer.write("%s = %s\n" % (key, str(scores[key])))
@@ -549,7 +549,7 @@ def main():
                 writer.write("{} = {}\n".format(key, str(scores[key])))
 
         # Save predictions
-        output_test_predictions_file = os.path.join(args.output_dir, "test_predictions.xlsx")
+        output_test_predictions_file = os.path.join(args.output_dir, args.prediction_file)
         predictions_table.to_excel(output_test_predictions_file)
 
 if __name__ == "__main__":
