@@ -227,6 +227,7 @@ def evaluate(args, model, tokenizer, mode, prefix=""):
     out_input_ids = None
     model.eval()
     for batch in tqdm(eval_dataloader, desc="Evaluating"):
+
         batch = tuple(t.to(args.device) for t in batch)
 
         with torch.no_grad():
@@ -250,7 +251,7 @@ def evaluate(args, model, tokenizer, mode, prefix=""):
             out_input_ids = np.append(out_input_ids, inputs['input_ids'].detach().cpu().numpy(), axis=0)
 
 
-    eval_loss = eval_loss / nb_eval_steps
+    #eval_loss = eval_loss / nb_eval_steps
     preds = np.argmax(preds, axis=1)
     logger.info("***** Preds first 10: {} *****".format(preds[:10]))
 
@@ -547,7 +548,7 @@ def main():
         tokenizer = tokenizer_class.from_pretrained(args.predict_model_dir, do_lower_case=args.do_lower_case)
         model = model_class.from_pretrained(args.predict_model_dir)
         model.to(args.device)
-        scores, predictions_table = evaluate(args, model, tokenizer, mode='test')
+        scores, predictions_table = evaluate(args, model, tokenizer, mode='ctest')
 
         # Save results
         output_test_scores_file = os.path.join(args.output_dir, args.scores_file)
