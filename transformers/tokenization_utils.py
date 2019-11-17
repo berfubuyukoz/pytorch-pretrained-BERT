@@ -780,11 +780,16 @@ class PreTrainedTokenizer(object):
             else:
                 raise ValueError("Input is not valid. Should be a string, a list/tuple of strings or a list/tuple of integers.")
 
-        first_ids = get_input_ids(text)
+        tokens = self.tokenize(text, **kwargs)
+        first_ids = get_input_ids(tokens)
+        second_tokens = self.tokenize(text_pair, **kwargs) if text_pair is not None else None
         second_ids = get_input_ids(text_pair) if text_pair is not None else None
+
 
         return self.prepare_for_model(first_ids,
                                       pair_ids=second_ids,
+                                      first_tokens=tokens,
+                                      second_tokens=second_tokens,
                                       max_length=max_length,
                                       add_special_tokens=add_special_tokens,
                                       stride=stride,
@@ -792,7 +797,7 @@ class PreTrainedTokenizer(object):
                                       return_tensors=return_tensors)
 
 
-    def prepare_for_model(self, ids, pair_ids=None, max_length=None, add_special_tokens=False, stride=0,
+    def prepare_for_model(self, ids, pair_ids=None, tokens=None, second_tokens=None, max_length=None, add_special_tokens=False, stride=0,
                           truncate_first_sequence=True, return_tensors=None):
         """
         Prepares a sequence of input id, or a pair of sequences of inputs ids so that it can be used by the model.
@@ -842,6 +847,7 @@ class PreTrainedTokenizer(object):
                         logger.warning(
                             "Cannot truncate second sequence as it is not provided. No truncation.")
 
+        sequence_tokens = tokens + second_tokens if pair else tokens
         if add_special_tokens:
             sequence = self.add_special_tokens_sequence_pair(ids, pair_ids) if pair else self.add_special_tokens_single_sequence(ids)
             token_type_ids = self.create_token_type_ids_from_sequences(ids, pair_ids) if pair else [0] * len(sequence)
@@ -859,6 +865,7 @@ class PreTrainedTokenizer(object):
             logger.warning("Unable to convert output to tensors format {}, PyTorch or TensorFlow is not available.".format(return_tensors))
 
         encoded_inputs["input_ids"] = sequence
+        encoded_inputs["input_tokens"] = sequence_tokens #special tokens are excluded. This is for only logging purposes.
         encoded_inputs["token_type_ids"] = token_type_ids
 
         return encoded_inputs
