@@ -788,7 +788,7 @@ class PreTrainedTokenizer(object):
 
         return self.prepare_for_model(first_ids,
                                       pair_ids=second_ids,
-                                      first_tokens=tokens,
+                                      tokens=tokens,
                                       second_tokens=second_tokens,
                                       max_length=max_length,
                                       add_special_tokens=add_special_tokens,
